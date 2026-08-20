@@ -88,15 +88,21 @@ export default function App() {
         historial,
         fechaExportacion: new Date().toISOString()
       };
+      
+      // Formato de fecha para el archivo
+      const ahora = new Date();
+      const fechaFormateada = `${ahora.getFullYear()}-${String(ahora.getMonth() + 1).padStart(2, '0')}-${String(ahora.getDate()).padStart(2, '0')}_${String(ahora.getHours()).padStart(2, '0')}-${String(ahora.getMinutes()).padStart(2, '0')}`;
+      
       const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(JSON.stringify(dataBackup, null, 2))}`;
       const downloadAnchor = document.createElement('a');
       downloadAnchor.setAttribute('href', jsonString);
-      downloadAnchor.setAttribute('download', `AppCuponera_Respaldo_${Date.now()}.json`);
+      // Se define la ruta relativa de guardado
+      downloadAnchor.setAttribute('download', `Cupones_de_Citas/Versiones/Respaldo_${fechaFormateada}.json`);
       document.body.appendChild(downloadAnchor);
       downloadAnchor.click();
       downloadAnchor.remove();
-      registrarEvento('SISTEMA', 'Copia de seguridad exportada correctamente');
-      alert('✅ Copia de seguridad guardada en Descargas');
+      registrarEvento('SISTEMA', `Copia de seguridad exportada: Respaldo_${fechaFormateada}.json`);
+      alert(`✅ Copia de seguridad guardada en: Cupones_de_Citas/Versiones/Respaldo_${fechaFormateada}.json`);
     } catch (e) {
       alert('❌ Error al exportar la copia de seguridad');
     }
@@ -274,7 +280,7 @@ export default function App() {
     }
 
     setCupones(cupones.map(c => c.id === id ? { ...c, usado: true, fechaUso: new Date().toISOString() } : c));
-    setSugerenciasActivas(sugerenciasActivas.filter(c => c.id !== id));
+    setSugerenciasActivas(sugerenciasActivas.filter(s => s.id !== id));
     setCupónSeleccionado(null);
     registrarEvento('CANJE', `Pareja marcó como pagado: "${cupon.titulo}" (${cupon.categoria.toUpperCase()})`);
   };
@@ -284,7 +290,8 @@ export default function App() {
     return real && !real.usado;
   });
 
-  const goldenTicketsList = cupones.filter(c => c.categoria === 'golden').slice(0, config.maxGoldenVisibles);
+  // Muestra TODOS los Golden Tickets creados
+  const goldenTicketsList = cupones.filter(c => c.categoria === 'golden');
 
   return (
     <div style={styles.container}>
@@ -378,6 +385,7 @@ export default function App() {
         ) : (
           <div style={styles.carousel}>
             {goldenTicketsList.map((c) => {
+              // Está disponible solo si no fue usado individualmente Y el cooldown global terminó
               const estaDisponible = !c.usado && goldenDisponible;
               return (
                 <div 
@@ -509,17 +517,6 @@ export default function App() {
                   type="number" min="1" max="365" 
                   value={tempConfig.cooldownGoldenDias} 
                   onChange={(e) => setTempConfig({ ...tempConfig, cooldownGoldenDias: e.target.value })} 
-                  style={styles.settingInput}
-                  required
-                />
-              </div>
-
-              <div style={styles.settingField}>
-                <label style={styles.settingLabel}>Golden Tickets Visibles:</label>
-                <input 
-                  type="number" min="1" max="10" 
-                  value={tempConfig.maxGoldenVisibles} 
-                  onChange={(e) => setTempConfig({ ...tempConfig, maxGoldenVisibles: e.target.value })} 
                   style={styles.settingInput}
                   required
                 />
@@ -665,7 +662,7 @@ const styles = {
   
   goldenCard: { minWidth: '200px', padding: '14px', borderRadius: '18px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', border: '2px solid #fbbf24' },
   goldenActive: { background: 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)', cursor: 'pointer' },
-  goldenDisabled: { background: '#f3f4f6', borderColor: '#d1d5db', opacity: 0.75, cursor: 'not-allowed' },
+  goldenDisabled: { background: '#f3f4f6', borderColor: '#d1d5db', opacity: 0.6, cursor: 'not-allowed' },
   goldenTag: { fontSize: '9px', fontWeight: '900', color: '#b45309', letterSpacing: '1px' },
   goldenTitle: { margin: '6px 0 4px 0', fontSize: '16px', color: '#78350f', fontWeight: '800' },
   goldenDesc: { fontSize: '11px', color: '#92400e', margin: 0 },

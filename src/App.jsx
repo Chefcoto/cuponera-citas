@@ -78,8 +78,8 @@ export default function App() {
     setHistorial(prev => [nuevoEvento, ...prev]);
   };
 
-  // --- EXPORTAR / IMPORTAR BACKUP ---
-  const exportarBackup = () => {
+  // --- EXPORTAR / IMPORTAR BACKUP (MENÚ NATIVO DE ANDROID) ---
+  const exportarBackup = async () => {
     try {
       const dataBackup = {
         cupones,
@@ -89,22 +89,39 @@ export default function App() {
         fechaExportacion: new Date().toISOString()
       };
       
-      // Formato de fecha para el archivo
       const ahora = new Date();
       const fechaFormateada = `${ahora.getFullYear()}-${String(ahora.getMonth() + 1).padStart(2, '0')}-${String(ahora.getDate()).padStart(2, '0')}_${String(ahora.getHours()).padStart(2, '0')}-${String(ahora.getMinutes()).padStart(2, '0')}`;
-      
-      const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(JSON.stringify(dataBackup, null, 2))}`;
+      const nombreArchivo = `Respaldo_AppCuponera_${fechaFormateada}.json`;
+      const contenidoJson = JSON.stringify(dataBackup, null, 2);
+
+      // Usar Web Share API para desplegar el selector de carpetas / guardar archivo de Android
+      if (navigator.share && navigator.canShare) {
+        const blob = new Blob([contenidoJson], { type: 'application/json' });
+        const file = new File([blob], nombreArchivo, { type: 'application/json' });
+        
+        if (navigator.canShare({ files: [file] })) {
+          await navigator.share({
+            title: 'Respaldo Cuponera de Citas',
+            files: [file]
+          });
+          registrarEvento('SISTEMA', `Respaldo guardado/compartido: ${nombreArchivo}`);
+          return;
+        }
+      }
+
+      // Descarga directa tradicional si no soporta menú nativo
+      const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(contenidoJson)}`;
       const downloadAnchor = document.createElement('a');
       downloadAnchor.setAttribute('href', jsonString);
-      // Se define la ruta relativa de guardado
-      downloadAnchor.setAttribute('download', `Cupones_de_Citas/Versiones/Respaldo_${fechaFormateada}.json`);
+      downloadAnchor.setAttribute('download', nombreArchivo);
       document.body.appendChild(downloadAnchor);
       downloadAnchor.click();
       downloadAnchor.remove();
-      registrarEvento('SISTEMA', `Copia de seguridad exportada: Respaldo_${fechaFormateada}.json`);
-      alert(`✅ Copia de seguridad guardada en: Cupones_de_Citas/Versiones/Respaldo_${fechaFormateada}.json`);
+      
+      registrarEvento('SISTEMA', `Copia de seguridad descargada: ${nombreArchivo}`);
+      alert(`✅ Respaldo generado: ${nombreArchivo}`);
     } catch (e) {
-      alert('❌ Error al exportar la copia de seguridad');
+      alert('❌ Error al exportar la copia de seguridad.');
     }
   };
 
@@ -280,7 +297,7 @@ export default function App() {
     }
 
     setCupones(cupones.map(c => c.id === id ? { ...c, usado: true, fechaUso: new Date().toISOString() } : c));
-    setSugerenciasActivas(sugerenciasActivas.filter(s => s.id !== id));
+    setSugerenciasActivas(sugerenciasActivas.filter(c => c.id !== id));
     setCupónSeleccionado(null);
     registrarEvento('CANJE', `Pareja marcó como pagado: "${cupon.titulo}" (${cupon.categoria.toUpperCase()})`);
   };
@@ -290,7 +307,6 @@ export default function App() {
     return real && !real.usado;
   });
 
-  // Muestra TODOS los Golden Tickets creados
   const goldenTicketsList = cupones.filter(c => c.categoria === 'golden');
 
   return (
@@ -385,7 +401,6 @@ export default function App() {
         ) : (
           <div style={styles.carousel}>
             {goldenTicketsList.map((c) => {
-              // Está disponible solo si no fue usado individualmente Y el cooldown global terminó
               const estaDisponible = !c.usado && goldenDisponible;
               return (
                 <div 
@@ -683,3 +698,4 @@ const styles = {
   settingInput: { width: '100%', padding: '6px 8px', borderRadius: '8px', border: '1px solid #cccccc', fontSize: '12px', boxSizing: 'border-box', backgroundColor: '#ffffff', color: '#000000' },
   footer: { textAlign: 'center', padding: '16px 0 8px 0', fontSize: '11px', color: '#555555', marginTop: 'auto', fontWeight: '600' }
 };
+

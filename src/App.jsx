@@ -78,51 +78,32 @@ export default function App() {
     setHistorial(prev => [nuevoEvento, ...prev]);
   };
 
-  // --- EXPORTAR / IMPORTAR BACKUP (MENÚ NATIVO DE ANDROID) ---
+  // --- EXPORTAR / IMPORTAR BACKUP (LÓGICA ORIGINAL QUE SÍ FUNCIONA) ---
   const exportarBackup = async () => {
-    try {
-      const dataBackup = {
-        cupones,
-        sugerenciasActivas,
-        config,
-        historial,
-        fechaExportacion: new Date().toISOString()
-      };
-      
-      const ahora = new Date();
-      const fechaFormateada = `${ahora.getFullYear()}-${String(ahora.getMonth() + 1).padStart(2, '0')}-${String(ahora.getDate()).padStart(2, '0')}_${String(ahora.getHours()).padStart(2, '0')}-${String(ahora.getMinutes()).padStart(2, '0')}`;
-      const nombreArchivo = `Respaldo_AppCuponera_${fechaFormateada}.json`;
-      const contenidoJson = JSON.stringify(dataBackup, null, 2);
+    const dataBackup = {
+      cupones,
+      sugerenciasActivas,
+      config,
+      historial,
+      fechaExportacion: new Date().toISOString()
+    };
 
-      // Usar Web Share API para desplegar el selector de carpetas / guardar archivo de Android
-      if (navigator.share && navigator.canShare) {
-        const blob = new Blob([contenidoJson], { type: 'application/json' });
-        const file = new File([blob], nombreArchivo, { type: 'application/json' });
-        
-        if (navigator.canShare({ files: [file] })) {
-          await navigator.share({
-            title: 'Respaldo Cuponera de Citas',
-            files: [file]
-          });
-          registrarEvento('SISTEMA', `Respaldo guardado/compartido: ${nombreArchivo}`);
-          return;
-        }
-      }
+    const nombreArchivo = `cuponera_citas_backup_${Date.now()}.json`;
+    const contenidoJson = JSON.stringify(dataBackup, null, 2);
 
-      // Descarga directa tradicional si no soporta menú nativo
-      const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(contenidoJson)}`;
-      const downloadAnchor = document.createElement('a');
-      downloadAnchor.setAttribute('href', jsonString);
-      downloadAnchor.setAttribute('download', nombreArchivo);
-      document.body.appendChild(downloadAnchor);
-      downloadAnchor.click();
-      downloadAnchor.remove();
-      
-      registrarEvento('SISTEMA', `Copia de seguridad descargada: ${nombreArchivo}`);
-      alert(`✅ Respaldo generado: ${nombreArchivo}`);
-    } catch (e) {
-      alert('❌ Error al exportar la copia de seguridad.');
-    }
+    // Método de descarga clásico mediante Blob
+    const blob = new Blob([contenidoJson], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = nombreArchivo;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    registrarEvento('SISTEMA', 'Copia de seguridad descargada');
+    alert(`✅ ¡Copia de seguridad generada!\n\nSe guardó en tu carpeta de 'Descargas' con el nombre:\n${nombreArchivo}`);
   };
 
   const importarBackup = (e) => {
@@ -139,12 +120,12 @@ export default function App() {
             setTempConfig(parsedData.config || config);
             setHistorial(parsedData.historial || []);
             setVerSettings(false);
-            alert('¡Copia de seguridad restaurada con éxito!');
+            alert('🎉 ¡Copia de seguridad restaurada con éxito!');
           } else {
-            alert('El archivo seleccionado no tiene el formato correcto de la cuponera.');
+            alert('⚠️ El archivo seleccionado no tiene el formato correcto de la cuponera.');
           }
         } catch (error) {
-          alert('Error al leer el archivo de respaldo. Asegúrate de que sea un archivo .json válido.');
+          alert('⚠️ Error al leer el archivo. Asegúrate de seleccionar un archivo .json válido.');
         }
       };
     }
@@ -307,6 +288,7 @@ export default function App() {
     return real && !real.usado;
   });
 
+  // Muestra TODOS los Golden Tickets
   const goldenTicketsList = cupones.filter(c => c.categoria === 'golden');
 
   return (
@@ -698,4 +680,3 @@ const styles = {
   settingInput: { width: '100%', padding: '6px 8px', borderRadius: '8px', border: '1px solid #cccccc', fontSize: '12px', boxSizing: 'border-box', backgroundColor: '#ffffff', color: '#000000' },
   footer: { textAlign: 'center', padding: '16px 0 8px 0', fontSize: '11px', color: '#555555', marginTop: 'auto', fontWeight: '600' }
 };
-

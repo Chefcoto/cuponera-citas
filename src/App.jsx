@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 
 export default function App() {
-  // --- ESTADOS Y PERSISTENCIA ---
   const [cupones, setCupones] = useState(() => {
     const saved = localStorage.getItem('cupones_citas');
     return saved ? JSON.parse(saved) : [];
@@ -23,26 +22,23 @@ export default function App() {
   });
 
   const [tempConfig, setTempConfig] = useState(config);
-
   const [historial, setHistorial] = useState(() => {
     const saved = localStorage.getItem('cupones_historial');
     return saved ? JSON.parse(saved) : [];
   });
 
-  // Formulario y Modales
   const [titulo, setTitulo] = useState('');
   const [descripcion, setDescripcion] = useState('');
   const [categoria, setCategoria] = useState('quincenal');
-  
-  const [cupenSeleccionado, setCupónSeleccionado] = useState(null);
+
+  const [cuponSeleccionado, setCuponSeleccionado] = useState(null);
   const [solicitarMezcla, setSolicitarMezcla] = useState(false);
   const [solicitarRestaurar, setSolicitarRestaurar] = useState(false);
   const [verBanco, setVerBanco] = useState(false);
   const [verSettings, setVerSettings] = useState(false);
   const [verHistorial, setVerHistorial] = useState(false);
-  const [cupónEditando, setCupónEditando] = useState(null);
+  const [cuponEditando, setCuponEditando] = useState(null);
 
-  // Guardar en localStorage
   useEffect(() => {
     localStorage.setItem('cupones_citas', JSON.stringify(cupones));
   }, [cupones]);
@@ -59,26 +55,106 @@ export default function App() {
     localStorage.setItem('cupones_historial', JSON.stringify(historial));
   }, [historial]);
 
-  useEffect(() => {
-    if (sugerenciasActivas.length === 0 && cupones.length > 0) {
-      generarNuevoLote();
-    }
-  }, [cupones]);
-
-  const hoy = new Date();
-
-  // --- REGISTRO DE HISTORIAL ---
   const registrarEvento = (tipo, detalle) => {
     const nuevoEvento = {
       id: Date.now(),
-      fecha: new Date().toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }),
+      fecha: new Date().toLocaleString(),
       tipo,
       detalle
     };
     setHistorial(prev => [nuevoEvento, ...prev]);
   };
 
-  // --- EXPORTAR / IMPORTAR BACKUP MEJORADO ---
+  const agregarCupon = (e) => {
+    e.preventDefault();
+    if (!titulo.trim()) return;
+
+    if (cuponEditando) {
+      setCupones(cupones.map(c => c.id === cuponEditando.id ? {
+        ...c,
+        titulo,
+        descripcion,
+        categoria
+      } : c));
+      registrarEvento('EDICIÓN', `Cupón modificado: "${titulo}"`);
+      setCuponEditando(null);
+    } else {
+      const nuevo = {
+        id: Date.now(),
+        titulo,
+        descripcion,
+        categoria,
+        fechaCreacion: new Date().toISOString(),
+        usadoEnGolden: null
+      };
+      setCupones([...cupones, nuevo]);
+      registrarEvento('CREACIÓN', `Nuevo cupón añadido al banco: "${titulo}" (${categoria})`);
+    }
+
+    setTitulo('');
+    setDescripcion('');
+    setCategoria('quincenal');
+  };
+
+  const iniciarEdicion = (cupon) => {
+    setCuponEditando(cupon);
+    setTitulo(cupon.titulo);
+    setDescripcion(cupon.descripcion || '');
+    setCategoria(cupon.categoria);
+    setVerBanco(false);
+  };
+
+  const eliminarCupon = (id, tituloCupon) => {
+    if (window.confirm('¿Seguro que deseas eliminar este cupón del banco?')) {
+      setCupones(cupones.filter(c => c.id !== id));
+      setSugerenciasActivas(sugerenciasActivas.filter(c => c.id !== id));
+      registrarEvento('ELIMINACIÓN', `Cupón eliminado: "${tituloCupon}"`);
+      if (cuponSeleccionado?.id === id) setCuponSeleccionado(null);
+    }
+  };
+
+  const mezclarSugerencias = () => {
+    const quincenales = cupones.filter(c => c.categoria === 'quincenal');
+    const mensuales = cupones.filter(c => c.categoria === 'mensual');
+
+    const ultimosGoldenUsados = historial
+      .filter(h => h.tipo === 'CANJE_GOLDEN')
+      .map(h => new Date(h.fecha).getTime());
+
+    const ultimoGolden = ultimosGoldenUsados.length > 0 ? Math.max(...ultimosGoldenUsados) : 0;
+    const diasDesdeUltimoGolden = (Date.now() - ultimoGolden) / (1000 * 60 * 60 * 24);
+    const goldenDisponible = diasDesdeUltimoGolden >= config.cooldownGoldenDias;
+
+    const goldenCandidates = cupones.filter(c => c.categoria === 'golden');
+
+    const qShuffled = [...quincenales].sort(() => 0.5 - Math.random()).slice(0, config.maxQuincenal);
+    const mShuffled = [...mensuales].sort(() => 0.5 - Math.random()).slice(0, config.maxMensual);
+    const gShuffled = goldenDisponible ? [...goldenCandidates].sort(() => 0.5 - Math.random()).slice(0, config.maxGoldenVisibles) : [];
+
+    const seleccionados = [...qShuffled, ...mShuffled, ...gShuffled];
+    setSugerenciasActivas(seleccionados);
+    setSolicitarMezcla(false);
+    registrarEvento('SISTEMA', 'Nuevas sugerencias generadas aleatoriamente');
+  };
+
+  const canjearCupon = (cupon) => {
+    if (cupon.categoria === 'golden') {
+      registrarEvento('CANJE_GOLDEN', `✨ ¡CUPÓN GOLDEN CANJEADO!: "${cupon.titulo}"`);
+    } else {
+      registrarEvento('CANJE', `Cupón canjeado: "${cupon.titulo}" (${cupon.categoria})`);
+    }
+    setSugerenciasActivas(sugerenciasActivas.filter(c => c.id !== cupon.id));
+    setCupones(cupones.filter(c => c.id !== cupon.id));
+    setCuponSeleccionado(null);
+    alert(`🎉 ¡Cupón "${cupon.titulo}" canjeado con éxito! ¡A disfrutar la cita!`);
+  };
+
+  const restaurarSugerencia = (cupon) => {
+    setSugerenciasActivas(sugerenciasActivas.filter(c => c.id !== cupon.id));
+    setCuponSeleccionado(null);
+    registrarEvento('SISTEMA', `Cupón devuelto al banco: "${cupon.titulo}"`);
+  };
+
   const exportarBackup = async () => {
     const dataBackup = {
       cupones,
@@ -91,7 +167,6 @@ export default function App() {
     const nombreArchivo = `cuponera_citas_backup_${Date.now()}.json`;
     const contenidoJson = JSON.stringify(dataBackup, null, 2);
 
-    // Intentar compartir con el menú nativo del celular (si está soportado)
     if (navigator.share && navigator.canShare) {
       try {
         const file = new File([contenidoJson], nombreArchivo, { type: 'application/json' });
@@ -100,15 +175,14 @@ export default function App() {
             title: 'Respaldo Cuponera de Citas',
             files: [file]
           });
-          registrarEvento('SISTEMA', 'Copia de seguridad exportada via Menú Móvil');
+          registrarEvento('SISTEMA', 'Copia de seguridad compartida');
           return;
         }
       } catch (err) {
-        // Si el usuario cancela o falla la API nativa, procede al método clásico
+        console.log('Error compartiendo:', err);
       }
     }
 
-    // Método de descarga clásico como fallback
     const blob = new Blob([contenidoJson], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -118,249 +192,111 @@ export default function App() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-
     registrarEvento('SISTEMA', 'Copia de seguridad descargada');
-    alert(`✅ ¡Copia de seguridad generada!\n\nSe guardó en tu carpeta de 'Descargas' con el nombre:\n${nombreArchivo}`);
   };
 
   const importarBackup = (e) => {
-    const fileReader = new FileReader();
-    if (e.target.files && e.target.files[0]) {
-      fileReader.readAsText(e.target.files[0], 'UTF-8');
-      fileReader.onload = (event) => {
-        try {
-          const parsedData = JSON.parse(event.target.result);
-          if (parsedData.cupones && parsedData.config) {
-            setCupones(parsedData.cupones || []);
-            setSugerenciasActivas(parsedData.sugerenciasActivas || []);
-            setConfig(parsedData.config || config);
-            setTempConfig(parsedData.config || config);
-            setHistorial(parsedData.historial || []);
-            setVerSettings(false);
-            alert('🎉 ¡Copia de seguridad restaurada con éxito!');
-          } else {
-            alert('⚠️ El archivo seleccionado no tiene el formato correcto de la cuponera.');
-          }
-        } catch (error) {
-          alert('⚠️ Error al leer el archivo. Asegúrate de seleccionar un archivo .json válido.');
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const data = JSON.parse(event.target.result);
+        if (data.cupones && data.config) {
+          setCupones(data.cupones || []);
+          setSugerenciasActivas(data.sugerenciasActivas || []);
+          setConfig(data.config || config);
+          setHistorial(data.historial || []);
+          registrarEvento('SISTEMA', 'Restauración de copia de seguridad exitosa');
+          alert('✅ ¡Datos e historial restaurados correctamente!');
+        } else {
+          alert('⚠️ El archivo no parece un respaldo válido de la Cuponera.');
         }
-      };
-    }
-  };
-
-  // --- CÁLCULOS Y REGLAS DE NEGOCIO ---
-  const cuponesUsadosQuincena = cupones.filter(c => {
-    if (!c.usado || c.categoria !== 'quincenal' || !c.fechaUso) return false;
-    const f = new Date(c.fechaUso);
-    const mismaQuincena = (f.getDate() <= 15 && hoy.getDate() <= 15) || (f.getDate() > 15 && hoy.getDate() > 15);
-    return f.getMonth() === hoy.getMonth() && f.getFullYear() === hoy.getFullYear() && mismaQuincena;
-  }).length;
-
-  const cuponesUsadosMes = cupones.filter(c => {
-    if (!c.usado || c.categoria !== 'mensual' || !c.fechaUso) return false;
-    const f = new Date(c.fechaUso);
-    return f.getMonth() === hoy.getMonth() && f.getFullYear() === hoy.getFullYear();
-  }).length;
-
-  const ultimoGoldenUsado = cupones
-    .filter(c => c.categoria === 'golden' && c.usado && c.fechaUso)
-    .sort((a, b) => new Date(b.fechaUso) - new Date(a.fechaUso))[0];
-
-  let diasParaSiguienteGolden = 0;
-  let goldenDisponible = true;
-
-  if (ultimoGoldenUsado) {
-    const fechaUso = new Date(ultimoGoldenUsado.fechaUso);
-    const diferenciaMs = hoy - fechaUso;
-    const diasTranscurridos = Math.floor(diferenciaMs / (1000 * 60 * 60 * 24));
-    if (diasTranscurridos < config.cooldownGoldenDias) {
-      goldenDisponible = false;
-      diasParaSiguienteGolden = config.cooldownGoldenDias - diasTranscurridos;
-    }
-  }
-
-  const diaActual = hoy.getDate();
-  const diasParaCambioSugerencias = diaActual <= 15 ? 16 - diaActual : (new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0).getDate() - diaActual) + 1;
-
-  const generarNuevoLote = () => {
-    const disponiblesQ = cupones.filter(c => !c.usado && c.categoria === 'quincenal').sort(() => 0.5 - Math.random());
-    const disponiblesM = cupones.filter(c => !c.usado && c.categoria === 'mensual').sort(() => 0.5 - Math.random());
-
-    const seleccionQ = disponiblesQ.slice(0, config.maxQuincenal);
-    const seleccionM = disponiblesM.slice(0, config.maxMensual);
-
-    const nuevoLote = [...seleccionQ, ...seleccionM].sort(() => 0.5 - Math.random());
-    setSugerenciasActivas(nuevoLote);
-    setSolicitarMezcla(false);
-    
-    registrarEvento('APROBACIÓN', 'Pareja autorizó refrescar el carrusel de sugerencias');
-  };
-
-  const ejecutarRestauracionTotal = () => {
-    setCupones(cupones.map(c => ({ ...c, usado: false, fechaUso: null })));
-    setSolicitarRestaurar(false);
-    setVerSettings(false);
-    registrarEvento('APROBACIÓN', 'Pareja autorizó Restaurar Todo (Cupones y Golden Tickets re-habilitados)');
-    alert('¡Todos los cupones y Golden Tickets han sido restaurados exitosamente!');
-  };
-
-  const ejecutarHardReset = () => {
-    if (confirm('⚠️ ¿Estás COMPLETAMENTE seguro de hacer un HARD RESET? Se borrarán todas las ideas, el historial y las configuraciones.')) {
-      localStorage.clear();
-      setCupones([]);
-      setSugerenciasActivas([]);
-      setHistorial([]);
-      const defaultConfig = {
-        maxQuincenal: 4,
-        maxMensual: 2,
-        cooldownGoldenDias: 60,
-        maxGoldenVisibles: 1
-      };
-      setConfig(defaultConfig);
-      setTempConfig(defaultConfig);
-      setVerSettings(false);
-      alert('Aplicación reiniciada desde cero.');
-    }
-  };
-
-  const abrirModalSettings = () => {
-    setTempConfig(config);
-    setVerSettings(true);
-  };
-
-  const guardarSettings = (e) => {
-    e.preventDefault();
-    const finalConfig = {
-      maxQuincenal: Math.max(1, parseInt(tempConfig.maxQuincenal) || 1),
-      maxMensual: Math.max(1, parseInt(tempConfig.maxMensual) || 1),
-      cooldownGoldenDias: Math.max(1, parseInt(tempConfig.cooldownGoldenDias) || 1),
-      maxGoldenVisibles: Math.max(1, parseInt(tempConfig.maxGoldenVisibles) || 1)
+      } catch (err) {
+        alert('❌ Error al leer el archivo de respaldo.');
+      }
     };
-    setConfig(finalConfig);
-    setTempConfig(finalConfig);
-    setVerSettings(false);
-    registrarEvento('SISTEMA', 'Ajustes de configuración actualizados');
+    reader.readAsText(file);
   };
 
-  const agregarCupon = (e) => {
-    e.preventDefault();
-    if (!titulo.trim()) return;
+  const ultimosGoldenUsados = historial
+    .filter(h => h.tipo === 'CANJE_GOLDEN')
+    .map(h => new Date(h.fecha).getTime());
 
-    if (cupónEditando) {
-      setCupones(cupones.map(c => c.id === cupónEditando.id ? { ...c, titulo, descripcion, categoria } : c));
-      registrarEvento('SISTEMA', `Idea editada: "${titulo}"`);
-      setCupónEditando(null);
-    } else {
-      const nuevo = { id: Date.now(), titulo, descripcion, categoria, usado: false, fechaUso: null };
-      setCupones([...cupones, nuevo]);
-      registrarEvento('SISTEMA', `Nueva idea registrada: "${titulo}" (${categoria})`);
-    }
+  const ultimoGolden = ultimosGoldenUsados.length > 0 ? Math.max(...ultimosGoldenUsados) : 0;
+  const diasDesdeUltimoGolden = (Date.now() - ultimoGolden) / (1000 * 60 * 60 * 24);
+  const diasParaGolden = Math.max(0, Math.ceil(config.cooldownGoldenDias - diasDesdeUltimoGolden));
+  const goldenDisponible = diasParaGolden === 0;
 
-    setTitulo('');
-    setDescripcion('');
-  };
-
-  const eliminarCupon = (id) => {
-    const c = cupones.find(item => item.id === id);
-    if (confirm('¿Eliminar esta idea del banco?')) {
-      setCupones(cupones.filter(item => item.id !== id));
-      setSugerenciasActivas(sugerenciasActivas.filter(s => s.id !== id));
-      if (c) registrarEvento('SISTEMA', `Idea eliminada: "${c.titulo}"`);
-    }
-  };
-
-  const iniciarEdicion = (c) => {
-    setCupónEditando(c);
-    setTitulo(c.titulo);
-    setDescripcion(c.descripcion || '');
-    setCategoria(c.categoria);
-    setVerBanco(false);
-  };
-
-  const canjearCupon = (id) => {
-    const cupon = cupones.find(c => c.id === id);
-    if (!cupon) return;
-
-    if (cupon.categoria === 'quincenal' && cuponesUsadosQuincena >= config.maxQuincenal) {
-      alert(`Límite quincenal alcanzado (máx ${config.maxQuincenal})`);
-      return;
-    }
-    if (cupon.categoria === 'mensual' && cuponesUsadosMes >= config.maxMensual) {
-      alert(`Límite mensual alcanzado (máx ${config.maxMensual})`);
-      return;
-    }
-    if (cupon.categoria === 'golden' && !goldenDisponible) {
-      alert(`El Golden Ticket aún está en período de espera. Faltan ${diasParaSiguienteGolden} días.`);
-      return;
-    }
-
-    setCupones(cupones.map(c => c.id === id ? { ...c, usado: true, fechaUso: new Date().toISOString() } : c));
-    setSugerenciasActivas(sugerenciasActivas.filter(c => c.id !== id));
-    setCupónSeleccionado(null);
-    registrarEvento('CANJE', `Pareja marcó como pagado: "${cupon.titulo}" (${cupon.categoria.toUpperCase()})`);
-  };
-
-  const listaMostrada = sugerenciasActivas.filter(s => {
-    const real = cupones.find(c => c.id === s.id);
-    return real && !real.usado;
-  });
-
-  const goldenTicketsList = cupones.filter(c => c.categoria === 'golden').slice(0, config.maxGoldenVisibles);
+  const listaMostrada = sugerenciasActivas;
 
   return (
     <div style={styles.container}>
-      {/* HEADER CON BOTONES DE ACCIÓN */}
+      {/* HEADER */}
       <header style={styles.header}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <button onClick={() => setVerHistorial(true)} style={styles.headerIconBtn} title="Historial">📜</button>
+          <button onClick={() => setVerHistorial(true)} style={styles.iconBtn}>📜 Historial</button>
           <h1 style={styles.title}>🎟️ Cuponera de Citas</h1>
-          <button onClick={abrirModalSettings} style={styles.headerIconBtn} title="Ajustes">⚙️</button>
+          <button onClick={() => { setTempConfig(config); setVerSettings(true); }} style={styles.iconBtn}>⚙️ Ajustes</button>
         </div>
         <div style={styles.badgeGroup}>
-          <span style={{ ...styles.badge, backgroundColor: '#fce7f3', color: '#be185d' }}>Quincenales: {cuponesUsadosQuincena}/{config.maxQuincenal}</span>
-          <span style={{ ...styles.badge, backgroundColor: '#f3e8ff', color: '#6b21a8' }}>Mensuales: {cuponesUsadosMes}/{config.maxMensual}</span>
+          <span style={{ ...styles.badge, backgroundColor: '#e0e7ff', color: '#3730a3' }}>Banco: {cupones.length}</span>
+          <span style={{ ...styles.badge, backgroundColor: '#fef3c7', color: '#92400e' }}>Golden: {cupones.filter(c => c.categoria === 'golden').length}</span>
         </div>
       </header>
 
-      {/* CONTADORES REGRESIVOS */}
+      {/* CONTADORES */}
       <section style={styles.timerBar}>
         <div style={styles.timerBox}>
-          <span style={styles.timerLabel}>⏱️ Próx. Cambio Sugerencias</span>
-          <span style={styles.timerValue}>{diasParaCambioSugerencias} días</span>
+          <span style={styles.timerLabel}>⏱️ Próx. Mezcla:</span>
+          <span style={styles.timerValue}>{diasParaGolden > 0 ? `${diasParaGolden} días` : '¡Lista!'}</span>
         </div>
-        <div style={{ ...styles.timerBox, borderColor: goldenDisponible ? '#f59e0b' : '#9ca3af' }}>
-          <span style={styles.timerLabel}>🌟 Estado Golden Ticket</span>
-          <span style={{ ...styles.timerValue, color: goldenDisponible ? '#b45309' : '#6b7280' }}>
-            {goldenDisponible ? '¡Disponible!' : `Espera: ${diasParaSiguienteGolden}d`}
+        <div style={{ ...styles.timerBox, borderColor: goldenDisponible ? '#f59e0b' : '#e5e7eb' }}>
+          <span style={styles.timerLabel}>🌟 Estado Golden:</span>
+          <span style={{ ...styles.timerValue, color: goldenDisponible ? '#d97706' : '#6b7280' }}>
+            {goldenDisponible ? '¡Disponible!' : `${diasParaGolden}d rest.`}
           </span>
         </div>
       </section>
 
-      {/* REGISTRO DE NUEVA IDEA */}
+      {/* CREAR / EDITAR */}
       <section style={styles.card}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h2 style={styles.sectionTitle}>{cupónEditando ? '✏️ Editando Idea' : 'Registrar Nueva Idea'}</h2>
-          <button onClick={() => setVerBanco(true)} style={styles.bancoBtn}>
+          <h2 style={styles.sectionTitle}>{cuponEditando ? '✏️ Editando Cupón' : '➕ Crear Idea'}</h2>
+          <button onClick={() => setVerBanco(true)} style={styles.linkBtn}>
             📚 Banco ({cupones.length})
           </button>
         </div>
 
-        <form onSubmit={agregarCupon} style={styles.form}>
-          <input type="text" placeholder="Título (ej. Escapada, Masaje...)" value={titulo} onChange={(e) => setTitulo(e.target.value)} style={styles.input} required />
-          <textarea placeholder="Detalles u opciones..." value={descripcion} onChange={(e) => setDescripcion(e.target.value)} style={{ ...styles.input, height: '45px', resize: 'none' }} />
-          
+        <form onSubmit={agregarCupon} style={{ marginTop: '10px' }}>
+          <input
+            type="text"
+            placeholder="Título (ej: Picnic al atardecer)"
+            value={titulo}
+            onChange={(e) => setTitulo(e.target.value)}
+            style={styles.input}
+            required
+          />
+          <textarea
+            placeholder="Detalles u opciones adicionales..."
+            value={descripcion}
+            onChange={(e) => setDescripcion(e.target.value)}
+            style={styles.textarea}
+          />
+
           <div style={styles.buttonGroup}>
-            <button type="button" onClick={() => setCategoria('quincenal')} style={{...styles.categoryBtn, backgroundColor: categoria === 'quincenal' ? '#ec4899' : '#f3f4f6', color: categoria === 'quincenal' ? '#fff' : '#333'}}>Quincenal</button>
-            <button type="button" onClick={() => setCategoria('mensual')} style={{...styles.categoryBtn, backgroundColor: categoria === 'mensual' ? '#a855f7' : '#f3f4f6', color: categoria === 'mensual' ? '#fff' : '#333'}}>Mensual</button>
-            <button type="button" onClick={() => setCategoria('golden')} style={{...styles.categoryBtn, backgroundColor: categoria === 'golden' ? '#f59e0b' : '#f3f4f6', color: categoria === 'golden' ? '#fff' : '#333'}}>✨ Golden</button>
+            <button type="button" onClick={() => setCategoria('quincenal')} style={{ ...styles.catBtn, backgroundColor: categoria === 'quincenal' ? '#3b82f6' : '#e5e7eb', color: categoria === 'quincenal' ? '#fff' : '#000' }}>Quincenal</button>
+            <button type="button" onClick={() => setCategoria('mensual')} style={{ ...styles.catBtn, backgroundColor: categoria === 'mensual' ? '#8b5cf6' : '#e5e7eb', color: categoria === 'mensual' ? '#fff' : '#000' }}>Mensual</button>
+            <button type="button" onClick={() => setCategoria('golden')} style={{ ...styles.catBtn, backgroundColor: categoria === 'golden' ? '#f59e0b' : '#e5e7eb', color: categoria === 'golden' ? '#fff' : '#000' }}>✨ Golden</button>
           </div>
 
-          <div style={{ display: 'flex', gap: '6px' }}>
+          <div style={{ display: 'flex', gap: '6px', marginTop: '10px' }}>
             <button type="submit" style={styles.submitBtn}>
-              {cupónEditando ? 'Guardar Cambios' : 'Guardar en Banco'}
+              {cuponEditando ? 'Guardar Cambios' : 'Añadir al Banco'}
             </button>
-            {cupónEditando && (
-              <button type="button" onClick={() => { setCupónEditando(null); setTitulo(''); setDescripcion(''); }} style={styles.cancelBtn}>
+            {cuponEditando && (
+              <button type="button" onClick={() => { setCuponEditando(null); setTitulo(''); setDescripcion(''); }} style={styles.cancelBtn}>
                 Cancelar
               </button>
             )}
@@ -368,327 +304,197 @@ export default function App() {
         </form>
       </section>
 
-      {/* SUGERENCIAS ACTIVAS */}
+      {/* SUGERENCIAS */}
       <section style={{ marginTop: '18px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-          <h2 style={styles.sectionTitle}>🎯 Sugerencias Activas ({listaMostrada.length})</h2>
-          <button onClick={() => setSolicitarMezcla(true)} style={styles.shuffleBtn}>🔄 Cambiar Opciones</button>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h2 style={styles.sectionTitle}>🎯 Sugerencias Activas</h2>
+          <button onClick={() => setSolicitarMezcla(true)} style={styles.actionBtn}>🎲 Mezclar</button>
         </div>
 
         {listaMostrada.length === 0 ? (
-          <div style={styles.empty}>No hay sugerencias fijadas. ¡Presiona "Cambiar Opciones" o agrega ideas!</div>
+          <div style={styles.empty}>No hay sugerencias en pantalla. Toca "Mezclar" para seleccionar del banco.</div>
         ) : (
           <div style={styles.carousel}>
             {listaMostrada.map((c) => (
-              <div key={c.id} onClick={() => setCupónSeleccionado(c)} style={styles.couponCard}>
-                <span style={{ ...styles.tag, backgroundColor: c.categoria === 'quincenal' ? '#fce7f3' : '#f3e8ff', color: c.categoria === 'quincenal' ? '#be185d' : '#6b21a8' }}>{c.categoria}</span>
+              <div key={c.id} onClick={() => setCuponSeleccionado(c)} style={{ ...styles.couponCard, borderColor: c.categoria === 'golden' ? '#f59e0b' : '#cbd5e1' }}>
+                <span style={{ ...styles.tag, backgroundColor: c.categoria === 'golden' ? '#fef3c7' : '#f1f5f9' }}>{c.categoria.toUpperCase()}</span>
                 <h3 style={styles.couponTitle}>{c.titulo}</h3>
                 {c.descripcion && <p style={styles.couponDesc}>{c.descripcion}</p>}
-                <div style={styles.tapToUse}>Toca para presentar →</div>
+                <div style={styles.tapToUse}>Toca para canjear 👆</div>
               </div>
             ))}
           </div>
         )}
       </section>
 
-      {/* SECCIÓN GOLDEN TICKETS */}
-      <section style={{ marginTop: '20px' }}>
-        <h2 style={{ ...styles.sectionTitle, color: '#b45309' }}>👑 Golden Tickets (Especiales)</h2>
-        {goldenTicketsList.length === 0 ? (
-          <div style={styles.emptyGolden}>No has registrado ningún Golden Ticket. ¡Crea uno especial arriba!</div>
-        ) : (
-          <div style={styles.carousel}>
-            {goldenTicketsList.map((c) => {
-              const estaDisponible = !c.usado && goldenDisponible;
-              return (
-                <div 
-                  key={c.id} 
-                  onClick={() => estaDisponible && setCupónSeleccionado(c)} 
-                  style={{
-                    ...styles.goldenCard,
-                    ...(estaDisponible ? styles.goldenActive : styles.goldenDisabled)
-                  }}
-                >
-                  <div>
-                    <span style={styles.goldenTag}>✨ GOLDEN TICKET</span>
-                    <h3 style={styles.goldenTitle}>{c.titulo}</h3>
-                    {c.descripcion && <p style={styles.goldenDesc}>{c.descripcion}</p>}
-                  </div>
-                  <div style={styles.goldenFooter}>
-                    {c.usado ? '❌ YA CANJEADO' : (!goldenDisponible ? `⏳ ESPERA (${diasParaSiguienteGolden}d)` : '✨ TOCAR PARA USAR')}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
-
-      {/* MODAL 1: Canje de Cupón */}
-      {cupenSeleccionado && (
+      {/* MODAL DETALLE */}
+      {cuponSeleccionado && (
         <div style={styles.overlay}>
           <div style={styles.modal}>
-            <span style={{ fontSize: '11px', fontWeight: 'bold', color: cupenSeleccionado.categoria === 'golden' ? '#d97706' : '#ec4899' }}>
-              {cupenSeleccionado.categoria === 'golden' ? '✨ GOLDEN TICKET PRESENTADO' : 'CUPÓN PRESENTADO'}
-            </span>
-            <h3 style={{ fontSize: '20px', margin: '10px 0' }}>{cupenSeleccionado.titulo}</h3>
-            {cupenSeleccionado.descripcion && <p style={{ fontSize: '12px', color: '#666', background: '#fff1f2', padding: '8px', borderRadius: '8px' }}>{cupenSeleccionado.descripcion}</p>}
-            <p style={{ fontSize: '11px', color: '#888', margin: '15px 0 10px 0' }}>Entrégale el teléfono a tu pareja para confirmar el pago.</p>
-            <button onClick={() => canjearCupon(cupenSeleccionado.id)} style={{ ...styles.payBtn, backgroundColor: cupenSeleccionado.categoria === 'golden' ? '#d97706' : '#10b981' }}>
-              ✓ Marcar como Pagado
-            </button>
-            <button onClick={() => setCupónSeleccionado(null)} style={styles.cancelBtn}>Cancelar</button>
+            <h3 style={{ marginTop: 0 }}>🎟️ {cuponSeleccionado.titulo}</h3>
+            <p>{cuponSeleccionado.descripcion || 'Sin descripción adicional.'}</p>
+            <p><strong>Categoría:</strong> {cuponSeleccionado.categoria}</p>
+            <div style={{ display: 'flex', gap: '8px', marginTop: '15px' }}>
+              <button onClick={() => canjearCupon(cuponSeleccionado)} style={styles.payBtn}>🎉 ¡Canjear Cita!</button>
+              <button onClick={() => setSolicitarRestaurar(true)} style={styles.restoreBtn}>↩️ Devolver al Banco</button>
+              <button onClick={() => setCuponSeleccionado(null)} style={styles.cancelBtn}>Cerrar</button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* MODAL 2: Autorización para Cambiar Lote */}
+      {/* MODAL CONFIRMAR MEZCLA */}
       {solicitarMezcla && (
         <div style={styles.overlay}>
           <div style={styles.modal}>
-            <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#a855f7' }}>AUTORIZACIÓN DE PAREJA</span>
-            <h3 style={{ fontSize: '18px', margin: '10px 0' }}>¿Cambiar sugerencias?</h3>
-            <p style={{ fontSize: '12px', color: '#666', background: '#f3e8ff', padding: '10px', borderRadius: '8px' }}>
-              Se seleccionarán aleatoriamente hasta <b>{config.maxQuincenal} quincenales</b> y <b>{config.maxMensual} mensuales</b> de tu banco.
-            </p>
-            <p style={{ fontSize: '11px', color: '#888', margin: '15px 0 10px 0' }}>Tu pareja debe presionar para autorizar la mezcla.</p>
-            <button onClick={generarNuevoLote} style={{ ...styles.payBtn, backgroundColor: '#a855f7' }}>
-              🔑 Pareja Autoriza Cambiar
-            </button>
+            <h3>🎲 ¿Generar nuevas sugerencias?</h3>
+            <p>Se descartarán las opciones no usadas actualmente en pantalla.</p>
+            <button onClick={mezclarSugerencias} style={styles.payBtn}>Sí, mezclar ahora</button>
             <button onClick={() => setSolicitarMezcla(false)} style={styles.cancelBtn}>Cancelar</button>
           </div>
         </div>
       )}
 
-      {/* MODAL 3: Gestor del Banco de Ideas */}
-      {verBanco && (
-        <div style={styles.overlay}>
-          <div style={{ ...styles.modal, maxWidth: '340px', maxHeight: '80vh', overflowY: 'auto' }}>
-            <h3 style={{ fontSize: '16px', color: '#db2777', margin: '0 0 10px 0' }}>📚 Banco de Ideas Registradas</h3>
-            
-            {cupones.length === 0 ? (
-              <p style={{ fontSize: '12px', color: '#888' }}>No hay ideas en el banco.</p>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', textAlign: 'left' }}>
-                {cupones.map(c => (
-                  <div key={c.id} style={{ padding: '8px', borderRadius: '10px', border: '1px solid #eee', background: c.usado ? '#f9fafb' : '#fff' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '9px', fontWeight: 'bold', textTransform: 'uppercase', padding: '2px 6px', borderRadius: '4px', backgroundColor: c.categoria === 'quincenal' ? '#fce7f3' : (c.categoria === 'mensual' ? '#f3e8ff' : '#fef3c7'), color: c.categoria === 'quincenal' ? '#be185d' : (c.categoria === 'mensual' ? '#6b21a8' : '#b45309') }}>
-                        {c.categoria} {c.usado ? '(USADO)' : ''}
-                      </span>
-                      <div style={{ display: 'flex', gap: '4px' }}>
-                        <button onClick={() => iniciarEdicion(c)} style={styles.iconBtn}>✏️</button>
-                        <button onClick={() => eliminarCupon(c.id)} style={{ ...styles.iconBtn, backgroundColor: '#fee2e2' }}>🗑️</button>
-                      </div>
-                    </div>
-                    <div style={{ fontSize: '13px', fontWeight: 'bold', marginTop: '4px' }}>{c.titulo}</div>
-                    {c.descripcion && <div style={{ fontSize: '11px', color: '#666' }}>{c.descripcion}</div>}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <button onClick={() => setVerBanco(false)} style={{ ...styles.cancelBtn, marginTop: '15px' }}>
-              Cerrar
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL 4: PANEL DE SETTINGS / CONFIGURACIÓN + BACKUPS */}
-      {verSettings && (
-        <div style={styles.overlay}>
-          <div style={{ ...styles.modal, maxWidth: '320px', textAlign: 'left', maxHeight: '85vh', overflowY: 'auto' }}>
-            <h3 style={{ fontSize: '16px', color: '#db2777', margin: '0 0 12px 0', textAlign: 'center' }}>⚙️ Ajustes y Configuración</h3>
-            
-            <form onSubmit={guardarSettings}>
-              <div style={styles.settingField}>
-                <label style={styles.settingLabel}>Máx. Cupones Quincenales:</label>
-                <input 
-                  type="number" min="1" max="20" 
-                  value={tempConfig.maxQuincenal} 
-                  onChange={(e) => setTempConfig({ ...tempConfig, maxQuincenal: e.target.value })} 
-                  style={styles.settingInput}
-                  required
-                />
-              </div>
-
-              <div style={styles.settingField}>
-                <label style={styles.settingLabel}>Máx. Cupones Mensuales:</label>
-                <input 
-                  type="number" min="1" max="20" 
-                  value={tempConfig.maxMensual} 
-                  onChange={(e) => setTempConfig({ ...tempConfig, maxMensual: e.target.value })} 
-                  style={styles.settingInput}
-                  required
-                />
-              </div>
-
-              <div style={styles.settingField}>
-                <label style={styles.settingLabel}>Días espera Golden Ticket:</label>
-                <input 
-                  type="number" min="1" max="365" 
-                  value={tempConfig.cooldownGoldenDias} 
-                  onChange={(e) => setTempConfig({ ...tempConfig, cooldownGoldenDias: e.target.value })} 
-                  style={styles.settingInput}
-                  required
-                />
-              </div>
-
-              <div style={styles.settingField}>
-                <label style={styles.settingLabel}>Golden Tickets Visibles:</label>
-                <input 
-                  type="number" min="1" max="10" 
-                  value={tempConfig.maxGoldenVisibles} 
-                  onChange={(e) => setTempConfig({ ...tempConfig, maxGoldenVisibles: e.target.value })} 
-                  style={styles.settingInput}
-                  required
-                />
-              </div>
-
-              <div style={{ display: 'flex', gap: '6px', marginTop: '12px' }}>
-                <button type="submit" style={{ ...styles.payBtn, backgroundColor: '#db2777', margin: 0 }}>
-                  💾 Guardar Configuración
-                </button>
-                <button type="button" onClick={() => setVerSettings(false)} style={{ ...styles.cancelBtn, width: 'auto' }}>
-                  Cancelar
-                </button>
-              </div>
-            </form>
-
-            <hr style={{ border: '0.5px solid #eee', margin: '15px 0' }} />
-
-            {/* SECCIÓN COPIAS DE SEGURIDAD / BACKUPS */}
-            <h4 style={{ fontSize: '12px', color: '#db2777', margin: '0 0 8px 0' }}>💾 Copias de Seguridad (Backup)</h4>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <button type="button" onClick={exportarBackup} style={styles.backupBtn}>
-                📤 Exportar Copia de Seguridad (.json)
-              </button>
-
-              <label style={styles.importLabel}>
-                📥 Importar Archivo de Respaldo
-                <input type="file" accept=".json" onChange={importarBackup} style={{ display: 'none' }} />
-              </label>
-            </div>
-
-            <hr style={{ border: '0.5px solid #eee', margin: '15px 0' }} />
-
-            {/* BOTONES ESPECIALES */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <button type="button" onClick={() => { setVerSettings(false); setSolicitarRestaurar(true); }} style={styles.restoreBtn}>
-                🔄 Restaurar Uso de Cupones (Requiere Pareja)
-              </button>
-
-              <button type="button" onClick={ejecutarHardReset} style={styles.hardResetBtn}>
-                💥 Hard Reset (Borrar Todo de Fábrica)
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL 5: APROBACIÓN DE PAREJA PARA RESTAURAR TODO */}
+      {/* MODAL CONFIRMAR RESTAURAR */}
       {solicitarRestaurar && (
         <div style={styles.overlay}>
           <div style={styles.modal}>
-            <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#db2777' }}>APROBACIÓN DE PAREJA</span>
-            <h3 style={{ fontSize: '18px', margin: '10px 0' }}>¿Restaurar estado de cupones?</h3>
-            <p style={{ fontSize: '12px', color: '#666', background: '#fdf2f8', padding: '10px', borderRadius: '8px' }}>
-              Esto volverá a <b>activar todos los cupones canjeados</b> y reiniciará el contador del <b>Golden Ticket</b>. Las ideas del banco no se borrarán.
-            </p>
-            <p style={{ fontSize: '11px', color: '#888', margin: '15px 0 10px 0' }}>Tu pareja debe presionar el botón para confirmar la restauración.</p>
-            <button onClick={ejecutarRestauracionTotal} style={{ ...styles.payBtn, backgroundColor: '#db2777' }}>
-              🔑 Pareja Autoriza Restaurar Todo
-            </button>
+            <h3>↩️ ¿Devolver al banco?</h3>
+            <p>Regresará este cupón a la lista general para futuras mezclas.</p>
+            <button onClick={() => { restaurarSugerencia(cuponSeleccionado); setSolicitarRestaurar(false); }} style={styles.payBtn}>Confirmar</button>
             <button onClick={() => setSolicitarRestaurar(false)} style={styles.cancelBtn}>Cancelar</button>
           </div>
         </div>
       )}
 
-      {/* MODAL 6: HISTORIAL DE ACTIVIDAD */}
-      {verHistorial && (
+      {/* BANCO DE CUPONES */}
+      {verBanco && (
         <div style={styles.overlay}>
-          <div style={{ ...styles.modal, maxWidth: '340px', maxHeight: '80vh', overflowY: 'auto' }}>
-            <h3 style={{ fontSize: '16px', color: '#db2777', margin: '0 0 10px 0' }}>📜 Historial de Actividad</h3>
-            
-            {historial.length === 0 ? (
-              <p style={{ fontSize: '12px', color: '#888' }}>No hay registros de actividad aún.</p>
+          <div style={{ ...styles.modal, maxHeight: '80vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3>📚 Banco de Cupones ({cupones.length})</h3>
+              <button onClick={() => setVerBanco(false)} style={styles.cancelBtn}>Cerrar</button>
+            </div>
+            {cupones.length === 0 ? (
+              <p>El banco está vacío. Agrega ideas arriba.</p>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', textAlign: 'left' }}>
-                {historial.map(h => (
-                  <div key={h.id} style={{ padding: '8px', borderRadius: '8px', border: '1px solid #f3f4f6', background: '#fafafa' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: '#9ca3af', fontWeight: 'bold' }}>
-                      <span>{h.tipo}</span>
-                      <span>{h.fecha}</span>
-                    </div>
-                    <div style={{ fontSize: '12px', color: '#374151', marginTop: '2px' }}>
-                      {h.detalle}
-                    </div>
+              cupones.map(c => (
+                <div key={c.id} style={styles.bancoItem}>
+                  <div>
+                    <strong>{c.titulo}</strong> ({c.categoria})
+                    {c.descripcion && <div style={{ fontSize: '11px', color: '#666' }}>{c.descripcion}</div>}
                   </div>
-                ))}
-              </div>
+                  <div style={{ display: 'flex', gap: '4px' }}>
+                    <button onClick={() => iniciarEdicion(c)} style={styles.iconBtn}>✏️</button>
+                    <button onClick={() => eliminarCupon(c.id, c.titulo)} style={{ ...styles.iconBtn, color: 'red' }}>🗑️</button>
+                  </div>
+                </div>
+              ))
             )}
-
-            <button onClick={() => setVerHistorial(false)} style={{ ...styles.cancelBtn, marginTop: '15px' }}>
-              Cerrar Historial
-            </button>
           </div>
         </div>
       )}
+
+      {/* AJUSTES */}
+      {verSettings && (
+        <div style={styles.overlay}>
+          <div style={styles.modal}>
+            <h3>⚙️ Configuración del Sistema</h3>
+            <div style={styles.settingField}>
+              <label style={styles.settingLabel}>Máx. Quincenales en pantalla:</label>
+              <input type="number" value={tempConfig.maxQuincenal} onChange={e => setTempConfig({ ...tempConfig, maxQuincenal: Number(e.target.value) })} style={styles.settingInput} />
+            </div>
+            <div style={styles.settingField}>
+              <label style={styles.settingLabel}>Máx. Mensuales en pantalla:</label>
+              <input type="number" value={tempConfig.maxMensual} onChange={e => setTempConfig({ ...tempConfig, maxMensual: Number(e.target.value) })} style={styles.settingInput} />
+            </div>
+            <div style={styles.settingField}>
+              <label style={styles.settingLabel}>Días de espera entre Goldens:</label>
+              <input type="number" value={tempConfig.cooldownGoldenDias} onChange={e => setTempConfig({ ...tempConfig, cooldownGoldenDias: Number(e.target.value) })} style={styles.settingInput} />
+            </div>
+
+            <hr style={{ margin: '15px 0' }} />
+            <h4>📁 Copias de Seguridad</h4>
+            <button onClick={exportarBackup} style={styles.backupBtn}>📤 Exportar / Compartir Respaldo</button>
+            <label style={styles.importLabel}>
+              📥 Importar Respaldo (.json)
+              <input type="file" accept=".json" onChange={importarBackup} style={{ display: 'none' }} />
+            </label>
+
+            <button onClick={() => { setConfig(tempConfig); setVerSettings(false); alert('Ajustes guardados'); }} style={styles.payBtn}>Guardar Cambios</button>
+            <button onClick={() => setVerSettings(false)} style={styles.cancelBtn}>Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {/* HISTORIAL */}
+      {verHistorial && (
+        <div style={styles.overlay}>
+          <div style={{ ...styles.modal, maxHeight: '80vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3>📜 Historial de Eventos</h3>
+              <button onClick={() => setVerHistorial(false)} style={styles.cancelBtn}>Cerrar</button>
+            </div>
+            {historial.length === 0 ? (
+              <p>Sin actividad registrada.</p>
+            ) : (
+              historial.map(h => (
+                <div key={h.id} style={{ borderBottom: '1px solid #eee', padding: '8px 0' }}>
+                  <div style={{ fontSize: '10px', color: '#888' }}>{h.fecha}</div>
+                  <strong style={{ fontSize: '12px' }}>[{h.tipo}]</strong> {h.detalle}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* PIE DE PÁGINA / FIRMA */}
+      <footer style={styles.footer}>
+        By Guía Gastronómica Costarricense
+      </footer>
     </div>
   );
 }
 
 const styles = {
-  container: { fontFamily: 'system-ui, sans-serif', padding: '15px', backgroundColor: '#fdf2f8', minHeight: '100vh', boxSizing: 'border-box' },
-  header: { textAlign: 'center', marginBottom: '10px' },
-  title: { margin: 0, color: '#db2777', fontSize: '20px' },
-  headerIconBtn: { background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', padding: '4px' },
-  badgeGroup: { display: 'flex', justifyContent: 'center', gap: '10px', marginTop: '6px' },
-  badge: { fontSize: '11px', padding: '4px 10px', borderRadius: '12px', fontWeight: 'bold' },
-  
-  timerBar: { display: 'flex', gap: '8px', marginBottom: '12px' },
-  timerBox: { flex: 1, backgroundColor: '#fff', padding: '8px', borderRadius: '12px', border: '1px solid #fbcfe8', textAlign: 'center', display: 'flex', flexDirection: 'column' },
-  timerLabel: { fontSize: '9px', color: '#6b7280', textTransform: 'uppercase', fontWeight: 'bold' },
-  timerValue: { fontSize: '12px', fontWeight: 'bold', color: '#db2777', marginTop: '2px' },
-
-  card: { backgroundColor: '#fff', padding: '15px', borderRadius: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' },
-  sectionTitle: { fontSize: '11px', color: '#ec4899', textTransform: 'uppercase', letterSpacing: '1px', margin: 0 },
-  bancoBtn: { backgroundColor: '#fbcfe8', border: 'none', color: '#be185d', padding: '4px 8px', borderRadius: '8px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' },
-  shuffleBtn: { backgroundColor: '#fbcfe8', border: 'none', color: '#be185d', padding: '4px 8px', borderRadius: '8px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' },
-  form: { display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '10px' },
-  input: { padding: '10px', borderRadius: '8px', border: '1px solid #e5e7eb', fontSize: '13px', outline: 'none' },
-  buttonGroup: { display: 'flex', gap: '6px' },
-  categoryBtn: { flex: 1, padding: '8px 4px', border: 'none', borderRadius: '8px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' },
-  submitBtn: { flex: 1, padding: '10px', backgroundColor: '#db2777', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer' },
-  empty: { textAlign: 'center', padding: '20px', color: '#9ca3af', backgroundColor: '#fff', borderRadius: '16px', fontSize: '12px' },
-  emptyGolden: { textAlign: 'center', padding: '20px', color: '#92400e', backgroundColor: '#fef3c7', borderRadius: '16px', fontSize: '12px', border: '1px dashed #f59e0b' },
-  carousel: { display: 'flex', gap: '10px', overflowX: 'auto', paddingBottom: '10px', marginTop: '8px' },
-  couponCard: { minWidth: '180px', backgroundColor: '#fff', padding: '12px', borderRadius: '16px', border: '1px solid #fbcfe8', cursor: 'pointer', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' },
-  tag: { fontSize: '9px', fontWeight: 'bold', textTransform: 'uppercase', padding: '2px 6px', borderRadius: '4px', alignSelf: 'flex-start' },
-  couponTitle: { margin: '8px 0 4px 0', fontSize: '15px', color: '#1f2937' },
-  couponDesc: { fontSize: '11px', color: '#6b7280', margin: 0 },
-  tapToUse: { fontSize: '10px', color: '#ec4899', fontWeight: 'bold', marginTop: '10px', textAlign: 'right' },
-  
-  goldenCard: { minWidth: '200px', padding: '14px', borderRadius: '18px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', border: '2px solid #fbbf24', boxShadow: '0 4px 12px rgba(245,158,11,0.2)' },
-  goldenActive: { background: 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)', cursor: 'pointer' },
-  goldenDisabled: { background: '#f3f4f6', borderColor: '#d1d5db', boxShadow: 'none', opacity: 0.75, cursor: 'not-allowed' },
-  goldenTag: { fontSize: '9px', fontWeight: '900', color: '#b45309', letterSpacing: '1px' },
-  goldenTitle: { margin: '6px 0 4px 0', fontSize: '16px', color: '#78350f', fontWeight: '800' },
-  goldenDesc: { fontSize: '11px', color: '#92400e', margin: 0 },
-  goldenFooter: { fontSize: '10px', fontWeight: 'bold', color: '#b45309', marginTop: '12px', textAlign: 'right' },
-
-  overlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '15px', zIndex: 100 },
-  modal: { backgroundColor: '#fff', width: '100%', maxWidth: '300px', borderRadius: '20px', padding: '20px', textAlign: 'center' },
-  payBtn: { width: '100%', padding: '12px', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer', marginBottom: '6px' },
-  cancelBtn: { width: '100%', padding: '8px', backgroundColor: '#f3f4f6', color: '#4b5563', border: 'none', borderRadius: '10px', fontSize: '11px', cursor: 'pointer' },
-  restoreBtn: { width: '100%', padding: '10px', backgroundColor: '#fce7f3', color: '#be185d', border: '1px solid #fbcfe8', borderRadius: '10px', fontWeight: 'bold', fontSize: '11px', cursor: 'pointer' },
-  hardResetBtn: { width: '100%', padding: '10px', backgroundColor: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5', borderRadius: '10px', fontWeight: 'bold', fontSize: '11px', cursor: 'pointer' },
-  backupBtn: { width: '100%', padding: '10px', backgroundColor: '#e0f2fe', color: '#0369a1', border: '1px solid #bae6fd', borderRadius: '10px', fontWeight: 'bold', fontSize: '11px', cursor: 'pointer', textAlign: 'center' },
-  importLabel: { display: 'block', width: '100%', padding: '10px', backgroundColor: '#f0fdf4', color: '#15803d', border: '1px solid #bbf7d0', borderRadius: '10px', fontWeight: 'bold', fontSize: '11px', cursor: 'pointer', textAlign: 'center', boxSizing: 'border-box' },
-  iconBtn: { padding: '4px 6px', border: 'none', borderRadius: '6px', fontSize: '11px', cursor: 'pointer', backgroundColor: '#f3f4f6' },
-
+  container: { padding: '12px', fontFamily: 'system-ui, sans-serif', maxWidth: '480px', margin: '0 auto', display: 'flex', flexDirection: 'column', minHeight: '98vh' },
+  header: { borderBottom: '1px solid #e5e7eb', paddingBottom: '8px' },
+  title: { fontSize: '18px', margin: 0 },
+  badgeGroup: { display: 'flex', gap: '6px', marginTop: '6px' },
+  badge: { fontSize: '10px', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold' },
+  timerBar: { display: 'flex', gap: '8px', margin: '12px 0' },
+  timerBox: { flex: 1, padding: '8px', border: '1px solid #e5e7eb', borderRadius: '8px', textAlign: 'center' },
+  timerLabel: { fontSize: '10px', display: 'block', color: '#6b7280' },
+  timerValue: { fontSize: '12px', fontWeight: 'bold' },
+  card: { padding: '12px', border: '1px solid #e5e7eb', borderRadius: '8px', backgroundColor: '#fafafa' },
+  sectionTitle: { fontSize: '14px', margin: 0 },
+  input: { width: '100%', padding: '8px', marginBottom: '6px', borderRadius: '4px', border: '1px solid #ccc', boxSizing: 'border-box' },
+  textarea: { width: '100%', padding: '8px', marginBottom: '6px', borderRadius: '4px', border: '1px solid #ccc', height: '50px', boxSizing: 'border-box' },
+  buttonGroup: { display: 'flex', gap: '4px' },
+  catBtn: { flex: 1, padding: '6px', border: 'none', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' },
+  submitBtn: { flex: 1, padding: '8px', backgroundColor: '#10b981', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold' },
+  actionBtn: { padding: '4px 8px', backgroundColor: '#6366f1', color: '#fff', border: 'none', borderRadius: '4px', fontSize: '12px' },
+  linkBtn: { background: 'none', border: 'none', color: '#2563eb', fontSize: '12px', cursor: 'pointer' },
+  carousel: { display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '8px' },
+  couponCard: { padding: '12px', border: '2px solid', borderRadius: '8px', backgroundColor: '#fff', cursor: 'pointer' },
+  couponTitle: { margin: '4px 0', fontSize: '14px' },
+  couponDesc: { margin: 0, fontSize: '12px', color: '#475569' },
+  tag: { fontSize: '9px', fontWeight: 'bold', padding: '2px 4px', borderRadius: '3px' },
+  tapToUse: { fontSize: '10px', color: '#94a3b8', textAlign: 'right', marginTop: '4px' },
+  empty: { padding: '20px', textAlign: 'center', color: '#64748b', fontSize: '12px' },
+  overlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px', zIndex: 1000 },
+  modal: { backgroundColor: '#fff', width: '100%', maxWidth: '400px', borderRadius: '8px', padding: '16px', boxSizing: 'border-box' },
+  payBtn: { width: '100%', padding: '10px', backgroundColor: '#10b981', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', marginBottom: '6px' },
+  cancelBtn: { width: '100%', padding: '8px', backgroundColor: '#ef4444', color: '#fff', border: 'none', borderRadius: '4px' },
+  restoreBtn: { width: '100%', padding: '8px', backgroundColor: '#64748b', color: '#fff', border: 'none', borderRadius: '4px', marginBottom: '6px' },
+  bancoItem: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #eee' },
+  iconBtn: { padding: '4px 8px', border: 'none', background: 'none', cursor: 'pointer', fontSize: '12px' },
   settingField: { marginBottom: '10px' },
-  settingLabel: { fontSize: '11px', color: '#4b5563', fontWeight: 'bold', display: 'block', marginBottom: '3px' },
-  settingInput: { width: '100%', padding: '6px 8px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '12px', boxSizing: 'border-box' }
+  settingLabel: { fontSize: '11px', color: '#4b5563', display: 'block' },
+  settingInput: { width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid #ccc', boxSizing: 'border-box' },
+  backupBtn: { width: '100%', padding: '8px', backgroundColor: '#3b82f6', color: '#fff', border: 'none', borderRadius: '4px', marginBottom: '6px' },
+  importLabel: { display: 'block', width: '100%', padding: '8px', backgroundColor: '#8b5cf6', color: '#fff', borderRadius: '4px', textAlign: 'center', marginBottom: '12px', boxSizing: 'border-box', cursor: 'pointer', fontSize: '13px' },
+  footer: { textAlign: 'center', padding: '12px 0 4px 0', fontSize: '11px', color: '#94a3b8', marginTop: 'auto', fontWeight: '600' }
 };
+	

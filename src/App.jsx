@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 
 export default function App() {
   // --- ESTADOS Y PERSISTENCIA ---
@@ -78,32 +79,50 @@ export default function App() {
     setHistorial(prev => [nuevoEvento, ...prev]);
   };
 
-  // --- EXPORTAR / IMPORTAR BACKUP (LÓGICA ORIGINAL QUE SÍ FUNCIONA) ---
+  // --- EXPORTAR BACKUP NATIVO EN ALMACENAMIENTO PÚBLICO ---
   const exportarBackup = async () => {
-    const dataBackup = {
-      cupones,
-      sugerenciasActivas,
-      config,
-      historial,
-      fechaExportacion: new Date().toISOString()
-    };
+    try {
+      const dataBackup = {
+        cupones,
+        sugerenciasActivas,
+        config,
+        historial,
+        fechaExportacion: new Date().toISOString()
+      };
 
-    const nombreArchivo = `cuponera_citas_backup_${Date.now()}.json`;
-    const contenidoJson = JSON.stringify(dataBackup, null, 2);
+      const ahora = new Date();
+      const fechaFormateada = `${ahora.getFullYear()}-${String(ahora.getMonth() + 1).padStart(2, '0')}-${String(ahora.getDate()).padStart(2, '0')}_${String(ahora.getHours()).padStart(2, '0')}-${String(ahora.getMinutes()).padStart(2, '0')}`;
+      const nombreArchivo = `Respaldo_AppCuponera_${fechaFormateada}.json`;
+      const contenidoJson = JSON.stringify(dataBackup, null, 2);
 
-    // Método de descarga clásico mediante Blob
-    const blob = new Blob([contenidoJson], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = nombreArchivo;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+      // Guardado nativo en almacenamiento de Android
+      try {
+        await Filesystem.writeFile({
+          path: nombreArchivo,
+          data: contenidoJson,
+          directory: Directory.Documents,
+          encoding: Encoding.UTF8
+        });
 
-    registrarEvento('SISTEMA', 'Copia de seguridad descargada');
-    alert(`✅ ¡Copia de seguridad generada!\n\nSe guardó en tu carpeta de 'Descargas' con el nombre:\n${nombreArchivo}`);
+        registrarEvento('SISTEMA', `Copia guardada: ${nombreArchivo}`);
+        alert(`✅ ¡Respaldo guardado con éxito!\n\nRevisa tu carpeta 'Documentos' o 'Descargas' en el teléfono:\n${nombreArchivo}`);
+        return;
+      } catch (errNativo) {
+        // Fallback web tradicional
+        const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(contenidoJson)}`;
+        const downloadAnchor = document.createElement('a');
+        downloadAnchor.setAttribute('href', jsonString);
+        downloadAnchor.setAttribute('download', nombreArchivo);
+        document.body.appendChild(downloadAnchor);
+        downloadAnchor.click();
+        downloadAnchor.remove();
+
+        registrarEvento('SISTEMA', `Copia descargada vía navegador: ${nombreArchivo}`);
+        alert(`✅ Respaldo generado: ${nombreArchivo}`);
+      }
+    } catch (e) {
+      alert('❌ Error al exportar la copia de seguridad.');
+    }
   };
 
   const importarBackup = (e) => {
@@ -288,12 +307,11 @@ export default function App() {
     return real && !real.usado;
   });
 
-  // Muestra TODOS los Golden Tickets
   const goldenTicketsList = cupones.filter(c => c.categoria === 'golden');
 
   return (
     <div style={styles.container}>
-      {/* HEADER CON BOTONES DE ACCIÓN */}
+      {/* HEADER */}
       <header style={styles.header}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <button onClick={() => setVerHistorial(true)} style={styles.headerIconBtn} title="Historial">📜</button>
@@ -306,7 +324,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* CONTADORES REGRESIVOS */}
+      {/* CONTADORES */}
       <section style={styles.timerBar}>
         <div style={styles.timerBox}>
           <span style={styles.timerLabel}>⏱️ Próx. Cambio Sugerencias</span>
@@ -320,7 +338,7 @@ export default function App() {
         </div>
       </section>
 
-      {/* REGISTRO DE NUEVA IDEA */}
+      {/* FORMULARIO */}
       <section style={styles.card}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h2 style={styles.sectionTitle}>{cupónEditando ? '✏️ Editando Idea' : 'Registrar Nueva Idea'}</h2>
@@ -352,7 +370,7 @@ export default function App() {
         </form>
       </section>
 
-      {/* SUGERENCIAS ACTIVAS */}
+      {/* SUGERENCIAS */}
       <section style={{ marginTop: '18px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
           <h2 style={styles.sectionTitle}>🎯 Sugerencias Activas ({listaMostrada.length})</h2>
@@ -375,7 +393,7 @@ export default function App() {
         )}
       </section>
 
-      {/* SECCIÓN GOLDEN TICKETS */}
+      {/* GOLDEN TICKETS */}
       <section style={{ marginTop: '20px' }}>
         <h2 style={{ ...styles.sectionTitle, color: '#b45309' }}>👑 Golden Tickets (Especiales)</h2>
         {goldenTicketsList.length === 0 ? (
@@ -408,7 +426,7 @@ export default function App() {
         )}
       </section>
 
-      {/* MODAL 1: Canje de Cupón */}
+      {/* MODALES Y BANCO */}
       {cupenSeleccionado && (
         <div style={styles.overlay}>
           <div style={styles.modal}>
@@ -426,7 +444,6 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL 2: Autorización para Cambiar Lote */}
       {solicitarMezcla && (
         <div style={styles.overlay}>
           <div style={styles.modal}>
@@ -444,7 +461,6 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL 3: Gestor del Banco de Ideas */}
       {verBanco && (
         <div style={styles.overlay}>
           <div style={{ ...styles.modal, maxWidth: '340px', maxHeight: '80vh', overflowY: 'auto' }}>
@@ -479,7 +495,6 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL 4: PANEL DE SETTINGS / CONFIGURACIÓN + BACKUPS */}
       {verSettings && (
         <div style={styles.overlay}>
           <div style={{ ...styles.modal, maxWidth: '320px', textAlign: 'left', maxHeight: '85vh', overflowY: 'auto' }}>
@@ -531,7 +546,6 @@ export default function App() {
 
             <hr style={{ border: '0.5px solid #ccc', margin: '15px 0' }} />
 
-            {/* SECCIÓN COPIAS DE SEGURIDAD / BACKUPS */}
             <h4 style={{ fontSize: '12px', color: '#000000', margin: '0 0 8px 0' }}>💾 Copias de Seguridad (Backup)</h4>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <button type="button" onClick={exportarBackup} style={styles.backupBtn}>
@@ -546,7 +560,6 @@ export default function App() {
 
             <hr style={{ border: '0.5px solid #ccc', margin: '15px 0' }} />
 
-            {/* BOTONES ESPECIALES */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <button type="button" onClick={() => { setVerSettings(false); setSolicitarRestaurar(true); }} style={styles.restoreBtn}>
                 🔄 Restaurar Uso de Cupones (Requiere Pareja)
@@ -560,7 +573,6 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL 5: APROBACIÓN DE PAREJA PARA RESTAURAR TODO */}
       {solicitarRestaurar && (
         <div style={styles.overlay}>
           <div style={styles.modal}>
@@ -578,7 +590,6 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL 6: HISTORIAL DE ACTIVIDAD */}
       {verHistorial && (
         <div style={styles.overlay}>
           <div style={{ ...styles.modal, maxWidth: '340px', maxHeight: '80vh', overflowY: 'auto' }}>

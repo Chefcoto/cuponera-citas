@@ -33,6 +33,8 @@ jobs:
 
       - name: Compilar Web
         run: npm run build
+    - name: Generar Iconos
+      run: npx -p @capacitor/assets capacitor-assets generate --android
 
       - name: Sincronizar Capacitor
         run: npx cap sync android
